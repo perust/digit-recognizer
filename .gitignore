@@ -1,0 +1,36 @@
+# Created: 2026-01-25 17:58
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# MNIST dataset (large file - download separately)
+mnist.npz
+
+# Build artifacts
+build/
+dist/
+*.spec
+*.egg-info/
+
+# macOS
+.DS_Store
+*.app/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Debug files
+debug_*.png

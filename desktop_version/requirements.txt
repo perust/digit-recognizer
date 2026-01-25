@@ -1,0 +1,8 @@
+# Created: 2026-01-25 17:50
+# Dependencies for Digit Recognizer Desktop App
+
+tensorflow>=2.10.0
+pillow>=9.0.0
+scipy>=1.9.0
+numpy>=1.21.0
+pyinstaller>=5.0.0  # For building executables
