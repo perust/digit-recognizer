@@ -3,10 +3,10 @@
 @REM Double-click this file to run the application
 
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 echo ==============================================
-echo   Handwritten Digit Recognition
+echo   Handwritten Digit Recognition (Web Version)
 echo ==============================================
 echo.
 echo Starting server...

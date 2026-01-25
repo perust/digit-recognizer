@@ -2,10 +2,10 @@
 # Handwritten Digit Recognition Launcher
 # Double-click this file to run the application
 
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 
 echo "=============================================="
-echo "  Handwritten Digit Recognition"
+echo "  Handwritten Digit Recognition (Web Version)"
 echo "=============================================="
 echo ""
 echo "Starting server..."
