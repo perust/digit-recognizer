@@ -19,7 +19,8 @@ app = Flask(__name__)
 
 # Global model variable
 model = None
-MODEL_PATH = 'mnist_model.keras'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, 'mnist_model.keras')
 
 # HTML template embedded in Python
 HTML_TEMPLATE = '''
