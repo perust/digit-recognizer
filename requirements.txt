@@ -1,0 +1,4 @@
+tensorflow>=2.16
+numpy>=1.26
+pillow>=10.0
+certifi

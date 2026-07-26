@@ -1,36 +1,19 @@
-# Created: 2026-01-25 17:58
-
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
 .venv/
+venv/
 
-# MNIST dataset (large file - download separately)
-mnist.npz
-
-# Build artifacts
-build/
-dist/
-*.spec
-*.egg-info/
-
-# macOS
-.DS_Store
+# Built by tools/make_launcher.py, which bakes in absolute local paths and
+# symlinks the interpreter of whoever ran it. Rebuild rather than clone it.
 *.app/
+launcher.log
 
-# IDE
+# Written by tools/export_samples.py from the MNIST cache.
+/samples/
+
+.DS_Store
 .idea/
 .vscode/
-*.swp
-*.swo
 
-# Logs
-*.log
-
-# Debug files
-debug_*.png
+# Local Claude Code settings, specific to this machine.
+.claude/

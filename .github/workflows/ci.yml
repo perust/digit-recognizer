@@ -6,11 +6,26 @@ on:
   pull_request:
 
 jobs:
-  python-compile:
+  # The normalisation rules the network depends on. TensorFlow is deliberately
+  # not installed: these tests exercise preprocess.py, which needs only numpy
+  # and Pillow, and keeping the job that light means it finishes in seconds.
+  preprocessing:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m compileall -q web_version desktop_version
+      - run: pip install "numpy>=1.26" "pillow>=10.0"
+      - run: python -m unittest discover -s tests -v
+
+  # The browser port, held against probabilities recorded from the Python model
+  # and against the same ten strokes the desktop app is tested with.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/test_web.mjs
