@@ -89,6 +89,24 @@
   .bars li.top b, .bars li.top .value { color: var(--text); }
   .bars .value { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
 
+  .collect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 28px; }
+  .collect label { font-size: 13px; color: var(--muted); }
+  #output {
+    flex: 1 1 200px;
+    min-width: 0;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 18px;
+    letter-spacing: 0.05em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 8px;
+  }
+  #output:focus { outline: none; border-color: var(--accent); }
+  #output::placeholder { font-size: 14px; letter-spacing: normal; color: var(--muted); }
+
   .preview { margin: 20px 0 0; }
   .preview canvas {
     width: 112px; height: 112px;
@@ -108,14 +126,15 @@
 <body>
 <main>
   <h1>Handwritten Digit Recognizer</h1>
-  <p class="lede">Draw a digit from 0 to 9. The network runs in this page — nothing is uploaded.</p>
+  <p class="lede">Draw a digit from 0 to 9, press Enter to collect it, and keep going for a
+    longer number. The network runs in this page — nothing is uploaded.</p>
 
   <div class="panels">
     <section class="draw">
       <canvas id="pad" width="300" height="300" aria-label="Drawing area for a single digit"></canvas>
       <div class="controls">
         <button id="clear" type="button">Clear</button>
-        <span class="hint">Draw large, filling most of the box.</span>
+        <span class="hint">Draw large, then press Enter.</span>
       </div>
     </section>
 
@@ -131,6 +150,15 @@
       </figure>
     </section>
   </div>
+
+  <section class="collect">
+    <label for="output">Digits</label>
+    <input id="output" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
+           placeholder="draw a digit and press Enter to add it here" />
+    <button id="add" type="button">Add&nbsp;&nbsp;⏎</button>
+    <button id="copy" type="button">Copy</button>
+    <button id="wipe" type="button">Erase</button>
+  </section>
 
   <footer>
     A convolutional network trained on MNIST, 99.5% on the test set. The digit is

@@ -3,7 +3,9 @@
     python3 -m digit_recognizer.app
 
 Draw with the mouse; the prediction refreshes shortly after you stop moving.
-Press "c" or the Clear button to start over.
+Enter adds the digit to the field along the bottom and clears the pad for the
+next one, so a longer number can be written a digit at a time and then copied
+out. Press "c" or the Clear button to start over.
 """
 
 from __future__ import annotations
@@ -54,6 +56,10 @@ class DigitRecognizerApp(tk.Tk):
         self._pending_prediction: str | None = None
         self._preview_photo: ImageTk.PhotoImage | None = None
 
+        # What the board currently reads, and the digits committed so far.
+        self._reading: int | None = None
+        self.digits = tk.StringVar()
+
         self._build_layout()
         self._clear()
         self._bring_to_front()
@@ -99,6 +105,7 @@ class DigitRecognizerApp(tk.Tk):
 
         self._build_drawing_column(root)
         self._build_result_column(root)
+        self._build_collector(root)
 
     def _build_drawing_column(self, root: tk.Frame) -> None:
         column = tk.Frame(root, bg=BACKGROUND)
@@ -117,12 +124,13 @@ class DigitRecognizerApp(tk.Tk):
         self.canvas.bind("<Button-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
         self.canvas.bind("<ButtonRelease-1>", lambda _event: self._schedule_prediction())
-        self.bind("<KeyPress-c>", lambda _event: self._clear())
+        self.bind("<KeyPress-c>", self._on_clear_key)
+        self.bind("<Return>", lambda _event: self._commit_digit())
         self.focus_set()
 
         tk.Label(
             column,
-            text="Draw one digit, large enough to fill most of the box.",
+            text="Draw one digit large, then press Enter to add it below.",
             font=("Helvetica", 11),
             fg=MUTED,
             bg=BACKGROUND,
@@ -170,6 +178,51 @@ class DigitRecognizerApp(tk.Tk):
 
         self.preview = tk.Label(column, bg="black", bd=0)
         self.preview.pack(anchor="w")
+
+    def _build_collector(self, root: tk.Frame) -> None:
+        """The strip along the bottom where recognised digits pile up.
+
+        An ordinary entry rather than a read-only label, so the digits can be
+        corrected by hand, typed into directly, and selected for copying like
+        text from anywhere else.
+        """
+        row = tk.Frame(root, bg=BACKGROUND)
+        row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+
+        tk.Label(
+            row, text="Digits", font=("Helvetica", 11), fg=MUTED, bg=BACKGROUND
+        ).pack(side="left", padx=(0, 8))
+
+        self.entry = tk.Entry(
+            row,
+            textvariable=self.digits,
+            font=("Helvetica", 16),
+            fg=INK,
+            bg=PANEL,
+            insertbackground=INK,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=TRACK,
+            highlightcolor=ACCENT,
+        )
+        self.entry.pack(side="left", fill="x", expand=True, ipady=5)
+
+        self.copy_button = tk.Button(
+            row, text="Copy", command=self._copy_digits,
+            font=("Helvetica", 12), highlightbackground=BACKGROUND, width=6,
+        )
+        for button in (
+            tk.Button(
+                row, text="Add  ⏎", command=self._commit_digit,
+                font=("Helvetica", 12), highlightbackground=BACKGROUND,
+            ),
+            self.copy_button,
+            tk.Button(
+                row, text="Erase", command=lambda: self.digits.set(""),
+                font=("Helvetica", 12), highlightbackground=BACKGROUND,
+            ),
+        ):
+            button.pack(side="left", padx=(8, 0))
 
     def _build_bar_row(self, digit: int) -> dict:
         """Create the label, track, fill and percentage of one probability row."""
@@ -234,6 +287,42 @@ class DigitRecognizerApp(tk.Tk):
         self._last_point = None
         self._show_blank()
 
+    def _on_clear_key(self, _event: tk.Event) -> None:
+        """"c" wipes the pad -- unless it is being typed into the digits field."""
+        if self.focus_get() is self.entry:
+            return
+        self._clear()
+
+    # ----------------------------------------------------------- collected text
+
+    def _commit_digit(self) -> None:
+        """Append what the board currently reads and make room for the next digit."""
+        if self._reading is None:
+            return
+        self.digits.set(self.digits.get() + str(self._reading))
+        self.entry.icursor(tk.END)
+        self._clear()
+        # Back to the window itself, so the next "c" reaches the pad rather
+        # than typing a letter into the field the Add button may have focused.
+        self.focus_set()
+
+    def _copy_digits(self) -> None:
+        text = self.digits.get()
+        if not text:
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        # Tk hands the selection over lazily; without this the clipboard is
+        # empty for anyone who pastes after the window has gone away.
+        self.update()
+        self._flash(self.copy_button, "Copied")
+
+    def _flash(self, button: tk.Button, message: str, milliseconds: int = 1200) -> None:
+        """Say something happened on the button itself, then put the label back."""
+        original = button.cget("text")
+        button.config(text=message)
+        button.after(milliseconds, lambda: button.config(text=original))
+
     # ------------------------------------------------------------ prediction
 
     def _schedule_prediction(self) -> None:
@@ -256,6 +345,7 @@ class DigitRecognizerApp(tk.Tk):
 
     def _show_result(self, probabilities: np.ndarray) -> None:
         best = int(np.argmax(probabilities))
+        self._reading = best
         self.digit_label.config(text=str(best))
         self.confidence_label.config(text=f"{probabilities[best] * 100:.1f}% confident")
         for digit, items in enumerate(self._bar_items):
@@ -285,6 +375,7 @@ class DigitRecognizerApp(tk.Tk):
         self.preview.config(image=self._preview_photo)
 
     def _show_blank(self) -> None:
+        self._reading = None
         self.digit_label.config(text="-")
         self.confidence_label.config(text="nothing drawn yet")
         for items in self._bar_items:

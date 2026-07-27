@@ -54,7 +54,6 @@ def main() -> None:
 
     correct = 0
     for expected, strokes in sorted(STROKES.items()):
-        app._clear()
         write(app, strokes)
         app._predict()  # the debounce timer never fires without a mainloop
         app.update()
@@ -62,10 +61,22 @@ def main() -> None:
         correct += shown == str(expected)
         status = "ok" if shown == str(expected) else "MISS"
         print(f"wrote {expected} -> app shows {shown}  ({app.confidence_label.cget('text')})  {status}")
+        app._commit_digit()  # appends to the field and wipes the pad for the next one
 
     print(f"\n{correct}/{len(STROKES)} recognised")
+
+    # Writing the digits in order should have typed the digits in order.
+    collected = app.digits.get()
+    expected_text = "".join(str(digit) for digit in sorted(STROKES))
+    print(f"collected field: {collected!r} (expected {expected_text!r})")
+
+    app._copy_digits()
+    pasted = app.clipboard_get()
+    print(f"clipboard      : {pasted!r}")
+
     app.destroy()
-    sys.exit(0 if correct == len(STROKES) else 1)
+    ok = correct == len(STROKES) and collected == expected_text and pasted == expected_text
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":

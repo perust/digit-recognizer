@@ -17,6 +17,10 @@ const confidenceLabel = document.getElementById('confidence');
 const barList = document.getElementById('bars');
 const verdict = document.getElementById('verdict');
 const clearButton = document.getElementById('clear');
+const output = document.getElementById('output');
+const addButton = document.getElementById('add');
+const copyButton = document.getElementById('copy');
+const wipeButton = document.getElementById('wipe');
 
 const context = pad.getContext('2d', { willReadFrequently: true });
 const previewContext = preview.getContext('2d');
@@ -25,6 +29,7 @@ const rows = buildBars();
 let model = null;
 let pendingPrediction = 0;
 let drawing = false;
+let reading = null; // the digit the pad currently shows, or null when it is blank
 
 // --------------------------------------------------------------------- setup
 
@@ -106,9 +111,51 @@ for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
 }
 
 clearButton.addEventListener('click', clear);
+
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'c' && !event.metaKey && !event.ctrlKey) clear();
+  if (event.metaKey || event.ctrlKey) return; // leave Cmd+C and the rest alone
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    commitDigit();
+  } else if (event.key === 'c' && event.target !== output) {
+    // "c" wipes the pad, unless it is being typed into the digits field.
+    clear();
+  }
 });
+
+// ------------------------------------------------------------ collected text
+
+/** Append what the pad reads and make room for the next digit. */
+function commitDigit() {
+  if (reading === null) return;
+  output.value += String(reading);
+  clear();
+}
+
+addButton.addEventListener('click', commitDigit);
+wipeButton.addEventListener('click', () => {
+  output.value = '';
+  output.focus();
+});
+
+copyButton.addEventListener('click', async () => {
+  if (!output.value) return;
+  try {
+    await navigator.clipboard.writeText(output.value);
+  } catch {
+    // No async clipboard, or the page is not on a secure origin.
+    output.select();
+    document.execCommand('copy');
+  }
+  flash(copyButton, 'Copied');
+});
+
+/** Say something happened on the button itself, then put the label back. */
+function flash(button, message) {
+  const original = button.textContent;
+  button.textContent = message;
+  setTimeout(() => { button.textContent = original; }, 1200);
+}
 
 // ---------------------------------------------------------------- prediction
 
@@ -143,6 +190,7 @@ function showResult(probabilities) {
     if (probabilities[digit] > probabilities[best]) best = digit;
   }
 
+  reading = best;
   verdict.classList.remove('is-blank');
   digitLabel.textContent = String(best);
   confidenceLabel.textContent = `${(probabilities[best] * 100).toFixed(1)}% confident`;
@@ -163,6 +211,7 @@ function showPreview(image) {
 }
 
 function showBlank() {
+  reading = null;
   verdict.classList.add('is-blank');
   digitLabel.textContent = '–';
   confidenceLabel.textContent = model ? 'nothing drawn yet' : 'loading the model…';

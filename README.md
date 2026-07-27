@@ -61,6 +61,12 @@ the right shows the probability of every digit and a magnified view of the
 28x28 image the network actually receives — if that preview looks wrong, the
 prediction will be too. Press `c` to clear.
 
+Press Enter, or the Add button, to append the digit to the field along the
+bottom and wipe the pad for the next one, so a longer number can be written a
+digit at a time. That field is an ordinary text entry: correct a misread digit
+by hand, type into it directly, select part of it, or hit Copy to put the whole
+thing on the clipboard.
+
 The app bundle records the absolute path of both this folder and the
 interpreter, because Finder launches an app with almost nothing on its PATH.
 Moving the whole folder is fine — the bundle finds the project beside itself —
@@ -89,6 +95,10 @@ python3 -m http.server 8000 --directory web
 The page needs a server rather than a `file://` URL only because ES modules and
 `fetch` require an origin. Nothing is uploaded; the 852 KB of weights are the
 whole download.
+
+It behaves like the desktop app: Enter collects the digit into the text field,
+which can be typed into and copied from. Drawing works with a finger as well as
+a mouse, and the page follows the reader's light or dark theme.
 
 Re-export the weights after retraining:
 
