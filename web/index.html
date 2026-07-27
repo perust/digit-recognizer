@@ -98,8 +98,20 @@
   #output:focus { outline: none; border-color: var(--accent); }
   #output::placeholder { font-size: 14px; letter-spacing: normal; color: var(--muted); }
 
-  .auto { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 13px; color: var(--muted); }
-  .auto input { accent-color: var(--accent); margin: 0; }
+  .auto { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .auto label { display: flex; align-items: center; gap: 7px; }
+  .auto input[type="checkbox"] { accent-color: var(--accent); margin: 0; }
+  .auto input[type="number"] {
+    width: 4.5em;
+    padding: 4px 6px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 6px;
+  }
+  .auto input[type="number"]:focus { outline: none; border-color: var(--accent); }
 
   .panels { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--edge); }
   .reading { flex: 1 1 260px; min-width: 0; }
@@ -161,11 +173,13 @@
     <button id="wipe" type="button">Erase</button>
   </section>
 
-  <label class="auto">
-    <input type="checkbox" id="auto" checked />
-    <!-- Filled in from AUTO_COMMIT_MS so the wording cannot drift from the timer. -->
-    <span id="auto-label">Take the last digit after a pause</span>
-  </label>
+  <!-- The checkbox gets its own label so that clicking the number beside it
+       cannot toggle it; the number carries its own accessible name. -->
+  <div class="auto">
+    <label><input type="checkbox" id="auto" checked /> Take the last digit after a</label>
+    <input type="number" id="delay" min="0.2" max="5" step="0.1" aria-label="Pause before the last digit is taken, in seconds" />
+    <span>second pause</span>
+  </div>
 
   <section class="panels">
     <div class="reading">

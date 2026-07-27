@@ -26,13 +26,14 @@ PEN_WIDTH = 22  # thick enough to survive the 10x downscale to 28x28
 PREVIEW_SCALE = 4  # magnification of the 28x28 image fed to the model
 PREDICT_DELAY_MS = 150  # idle time before the prediction is refreshed
 
-# How long the pen has to rest before the digit is added on its own.  Short
-# enough that writing a number does not feel like waiting; the cost is that a
-# two-stroke digit -- 4, 5, a crossed 7 -- is filed early if the mouse takes
-# longer than this to reach the second stroke, turning a "4" into "1" then "1".
-# Starting a stroke calls a pending add off and Backspace takes one back, which
-# is what keeps that recoverable rather than merely annoying.
-AUTO_COMMIT_MS = 600
+# How long the pen has to rest before the digit is added on its own.  The right
+# value depends on how fast you write -- a two-stroke digit such as 4, 5 or a
+# crossed 7 is filed early if the mouse takes longer than this to reach the
+# second stroke -- so it is a field in the window rather than a fixed number;
+# the bounds only keep it from being set to something unusable.
+DEFAULT_AUTO_COMMIT_MS = 800
+MIN_AUTO_COMMIT_MS = 200
+MAX_AUTO_COMMIT_MS = 5000
 COUNTDOWN_TICK_MS = 25  # how often the progress bar is redrawn
 COUNTDOWN_HEIGHT = 4
 
@@ -73,8 +74,10 @@ class DigitRecognizerApp(tk.Tk):
 
         self._drawing = False
         self.auto_commit = tk.BooleanVar(value=True)
+        self.pause_seconds = tk.StringVar(value=f"{DEFAULT_AUTO_COMMIT_MS / 1000:.1f}")
         self._auto_deadline: float | None = None
         self._countdown_job: str | None = None
+        self._pause_ms_in_flight = DEFAULT_AUTO_COMMIT_MS
 
         self._build_layout()
         self._clear()
@@ -217,9 +220,12 @@ class DigitRecognizerApp(tk.Tk):
         row = tk.Frame(root, bg=BACKGROUND)
         row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(16, 0))
 
+        settings = tk.Frame(root, bg=BACKGROUND)
+        settings.grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
         tk.Checkbutton(
-            root,
-            text=f"Add on its own after a {AUTO_COMMIT_MS / 1000:.1f}s pause",
+            settings,
+            text="Add on its own after a",
             variable=self.auto_commit,
             command=self._on_auto_commit_toggled,
             font=("Helvetica", 11),
@@ -230,7 +236,31 @@ class DigitRecognizerApp(tk.Tk):
             selectcolor=PANEL,
             highlightthickness=0,
             bd=0,
-        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        ).pack(side="left")
+
+        self.pause_entry = tk.Entry(
+            settings,
+            textvariable=self.pause_seconds,
+            width=4,
+            justify="center",
+            font=("Helvetica", 11),
+            fg=INK,
+            bg=PANEL,
+            insertbackground=INK,
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground=TRACK,
+            highlightcolor=ACCENT,
+        )
+        self.pause_entry.pack(side="left", padx=4)
+        # Committed when the field is left or Return is pressed. "break" keeps
+        # that Return from also reaching the window, where it would add a digit.
+        self.pause_entry.bind("<FocusOut>", lambda _event: self._normalise_pause())
+        self.pause_entry.bind("<Return>", lambda _event: (self._normalise_pause(), "break")[1])
+
+        tk.Label(
+            settings, text="second pause", font=("Helvetica", 11), fg=MUTED, bg=BACKGROUND
+        ).pack(side="left")
 
         tk.Label(
             row, text="Digits", font=("Helvetica", 11), fg=MUTED, bg=BACKGROUND
@@ -341,17 +371,36 @@ class DigitRecognizerApp(tk.Tk):
         self._last_point = None
         self._show_blank()
 
+    def _typing(self) -> bool:
+        """True while a text field holds the keyboard, so shortcuts stand aside."""
+        return isinstance(self.focus_get(), tk.Entry)
+
     def _on_clear_key(self, _event: tk.Event) -> None:
-        """"c" wipes the pad -- unless it is being typed into the digits field."""
-        if self.focus_get() is self.entry:
+        """"c" wipes the pad -- unless it is being typed into one of the fields."""
+        if self._typing():
             return
         self._clear()
 
     # -------------------------------------------------------- automatic adding
 
+    def _pause_ms(self) -> int:
+        """The wait as typed, held to something usable; the default if it is not a number."""
+        try:
+            milliseconds = round(float(self.pause_seconds.get()) * 1000)
+        except ValueError:
+            return DEFAULT_AUTO_COMMIT_MS
+        return max(MIN_AUTO_COMMIT_MS, min(MAX_AUTO_COMMIT_MS, milliseconds))
+
+    def _normalise_pause(self) -> None:
+        """Write the accepted value back, so the field never disagrees with the timer."""
+        self.pause_seconds.set(f"{self._pause_ms() / 1000:.1f}")
+        if self._auto_deadline is not None:
+            self._start_auto_commit()  # let a running countdown show the new length
+
     def _start_auto_commit(self) -> None:
         """Begin the wait after which a resting digit adds itself."""
-        self._auto_deadline = time.monotonic() + AUTO_COMMIT_MS / 1000
+        self._pause_ms_in_flight = self._pause_ms()
+        self._auto_deadline = time.monotonic() + self._pause_ms_in_flight / 1000
         self._tick_countdown()
 
     def _cancel_auto_commit(self) -> None:
@@ -373,7 +422,7 @@ class DigitRecognizerApp(tk.Tk):
             self._commit_digit()
             return
 
-        elapsed = 1 - remaining / (AUTO_COMMIT_MS / 1000)
+        elapsed = 1 - remaining / (self._pause_ms_in_flight / 1000)
         self.countdown.coords(
             self._countdown_bar, 0, 0, CANVAS_SIZE * elapsed, COUNTDOWN_HEIGHT
         )
@@ -409,9 +458,9 @@ class DigitRecognizerApp(tk.Tk):
         self.entry.icursor(tk.END)
 
     def _on_backspace(self, _event: tk.Event) -> None:
-        # Inside the field, Backspace is ordinary text editing; outside it,
+        # Inside a field, Backspace is ordinary text editing; outside one,
         # it undoes the last digit that was collected.
-        if self.focus_get() is self.entry:
+        if self._typing():
             return
         self._undo_digit()
 

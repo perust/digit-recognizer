@@ -19,7 +19,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from digit_recognizer.app import AUTO_COMMIT_MS, DigitRecognizerApp  # noqa: E402
+from digit_recognizer.app import DEFAULT_AUTO_COMMIT_MS, DigitRecognizerApp  # noqa: E402
 
 # The paths live in a fixture rather than in this file because the browser
 # build's test suite replays the very same strokes; sharing the data is what
@@ -77,29 +77,53 @@ def main() -> None:
     automatic = check_auto_commit(app)
     print(f"pen left resting -> collected {automatic!r} with no key pressed")
 
+    typed = check_typed_pause(app)
+    print(f"pause typed as {typed['typed']!r} -> honoured as {typed['accepted']!r}, "
+          f"nonsense falls back to {typed['fallback']!r}")
+
     app.destroy()
     ok = (
         correct == len(STROKES)
         and collected == expected_text
         and pasted == expected_text
         and automatic == "5"
+        and typed["accepted"] == "2.0"
+        and typed["fallback"] == f"{DEFAULT_AUTO_COMMIT_MS / 1000:.1f}"
+        and typed["clamped"] == "5.0"
     )
     sys.exit(0 if ok else 1)
 
 
-def check_auto_commit(app: DigitRecognizerApp) -> str:
+def check_auto_commit(app: DigitRecognizerApp, pause: str | None = None) -> str:
     """Write a 5, drop the pen, and let the timers run without touching a key.
 
     Needs a real event loop: the countdown and the prediction debounce are both
     `after` callbacks, which never fire while the rest of this script drives the
     app synchronously.
     """
+    if pause is not None:
+        app.pause_seconds.set(pause)
     app.digits.set("")
     write(app, STROKES[5])
     app._on_release(None)  # pen up is what arms the countdown
-    app.after(AUTO_COMMIT_MS + 900, app.quit)
+    app.after(app._pause_ms() + 900, app.quit)
     app.mainloop()
     return app.digits.get()
+
+
+def check_typed_pause(app: DigitRecognizerApp) -> dict:
+    """A typed wait should be taken as written, or corrected if it cannot be."""
+    results = {}
+    for key, typed in (("accepted", "2"), ("fallback", "abc"), ("clamped", "99")):
+        app.pause_seconds.set(typed)
+        app._normalise_pause()
+        results[key] = app.pause_seconds.get()
+    results["typed"] = "2"
+
+    app.pause_seconds.set("0.3")
+    app._normalise_pause()
+    assert check_auto_commit(app) == "5", "a shortened wait should still collect the digit"
+    return results
 
 
 if __name__ == "__main__":

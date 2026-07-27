@@ -18,9 +18,14 @@ const PREDICT_DELAY_MS = 150; // idle time before the reading is refreshed
 
 // How long the pen has to rest before the last digit is taken. Only the last
 // one waits: everything before it was already settled by the pen moving on.
-const AUTO_COMMIT_MS = 600;
+// The reader can change it, because the right value depends on how fast they
+// write; the bounds only keep it from being set to something unusable.
+const DEFAULT_AUTO_COMMIT_MS = 800;
+const MIN_AUTO_COMMIT_MS = 200;
+const MAX_AUTO_COMMIT_MS = 5000;
 const FADE_MS = 450; // how long collected ink takes to disappear
 const AUTO_COMMIT_KEY = 'digit-recognizer:auto-commit';
+const PAUSE_KEY = 'digit-recognizer:pause-seconds';
 
 const pad = document.getElementById('pad');
 const preview = document.getElementById('preview');
@@ -35,7 +40,7 @@ const undoButton = document.getElementById('undo');
 const copyButton = document.getElementById('copy');
 const wipeButton = document.getElementById('wipe');
 const autoToggle = document.getElementById('auto');
-const autoLabel = document.getElementById('auto-label');
+const delayInput = document.getElementById('delay');
 const countdown = document.getElementById('countdown');
 
 const context = pad.getContext('2d', { willReadFrequently: true });
@@ -56,9 +61,30 @@ let reading = null; // what the rightmost unread digit says, or null when there 
 let pendingPrediction = 0;
 let autoTimer = 0;
 let frame = 0;
+let autoCommitMs = DEFAULT_AUTO_COMMIT_MS;
 
 autoToggle.checked = remembered(AUTO_COMMIT_KEY) !== 'off';
-autoLabel.textContent = `Take the last digit after a ${(AUTO_COMMIT_MS / 1000).toFixed(1)} second pause`;
+applyPause(remembered(PAUSE_KEY) ?? String(DEFAULT_AUTO_COMMIT_MS / 1000));
+
+/**
+ * Take whatever was typed into the pause field, hold it to something usable,
+ * and write the accepted value back so the field never disagrees with the timer.
+ */
+function applyPause(text) {
+  const seconds = Number.parseFloat(text);
+  autoCommitMs = Number.isFinite(seconds)
+    ? Math.min(MAX_AUTO_COMMIT_MS, Math.max(MIN_AUTO_COMMIT_MS, Math.round(seconds * 1000)))
+    : DEFAULT_AUTO_COMMIT_MS;
+  delayInput.value = (autoCommitMs / 1000).toFixed(1);
+  remember(PAUSE_KEY, delayInput.value);
+}
+
+// "change" rather than "input": rewriting the field on every keystroke would
+// clamp "0" to the minimum before "0.8" had been finished.
+delayInput.addEventListener('change', () => {
+  applyPause(delayInput.value);
+  if (autoTimer) startAutoCommit(); // let a running countdown show the new length
+});
 
 /** Storage throws rather than degrading in some privacy modes, so ask carefully. */
 function remembered(key) {
@@ -245,6 +271,7 @@ clearButton.addEventListener('click', clear);
 
 document.addEventListener('keydown', (event) => {
   if (event.metaKey || event.ctrlKey) return; // leave Cmd+C and the rest alone
+  if (event.target === delayInput) return; // the pause field handles its own keys
   if (event.key === 'Enter') {
     event.preventDefault();
     collectEverything();
@@ -333,9 +360,9 @@ function startAutoCommit() {
   countdown.style.transition = 'none';
   countdown.style.width = '0%';
   void countdown.offsetWidth; // flush, or the reset is folded into the animation
-  countdown.style.transition = `width ${AUTO_COMMIT_MS}ms linear`;
+  countdown.style.transition = `width ${autoCommitMs}ms linear`;
   countdown.style.width = '100%';
-  autoTimer = setTimeout(collectEverything, AUTO_COMMIT_MS);
+  autoTimer = setTimeout(collectEverything, autoCommitMs);
 }
 
 function cancelAutoCommit() {

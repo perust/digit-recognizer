@@ -64,20 +64,23 @@ prediction will be too. Press `c` to clear.
 Rest the pen and the digit adds itself to the field along the bottom, wiping
 the pad for the next one, so a longer number is written a digit at a time. A
 bar under the pad fills up during the wait — drawing again calls it off. Enter
-adds the digit immediately, Backspace takes the last one back, and the checkbox
-turns the automatic add off entirely.
+adds the digit immediately, Backspace takes the last one back, the checkbox
+turns the automatic add off entirely, and the wait itself is a field you can
+type into.
 
 That field is an ordinary text entry: correct a misread digit by hand, type into
 it directly, select part of it, or hit Copy to put the whole thing on the
 clipboard.
 
-The wait is 0.6 seconds. What it trades against is two-stroke digits — 4, 5, a
-crossed 7 — where the pointer has to travel to the second stroke before the
+The wait starts at 0.8 seconds and can be set anywhere from 0.2 to 5; anything
+outside that, or not a number at all, is corrected in the field so it never
+disagrees with the timer. What the wait trades against is two-stroke digits —
+4, 5, a crossed 7 — where the pointer has to reach the second stroke before the
 timer runs out; miss it and a "4" is filed as "6" followed by "1", inserting a
-wrong digit *and* splitting the intended one. In practice there is more room
-than the number suggests, because the 150 ms prediction debounce is spent first:
-a measured 800 ms between strokes still comes out as one digit, and 1000 ms is
-where it breaks. Showing the countdown is what makes the rest of it work — you
+wrong digit *and* splitting the intended one. There is more room than the number
+suggests, because the 150 ms prediction debounce is spent first: at the default,
+a measured 900 ms between strokes still comes out as one digit, and 1000 ms is
+where a 4 breaks. Showing the countdown is what makes the rest of it work — you
 can see the add coming and keep drawing, which cancels it.
 
 The app bundle records the absolute path of both this folder and the
@@ -112,7 +115,7 @@ whole download.
 The browser version takes a whole number rather than one digit: write across the
 strip and each digit is read and collected as you move on to the next, its ink
 fading once it has been taken. The last digit, with nothing after it to settle
-it, is taken after the same 0.6 second pause.
+it, is taken after the same pause, which is a field you can type into.
 
 Digits are told apart by the gaps between them, not by time. Time alone cannot
 do it — write quickly and two digits fall inside one window, write slowly and a
@@ -124,8 +127,8 @@ and so never cuts a digit in half; `tests/test_web.mjs` writes 2026, 415 and
 
 Writing works with a finger as well as a mouse, the strip keeps its height and
 takes the width of the page rather than being squashed on a phone, the page
-follows the reader's light or dark theme, and the pause setting is remembered
-between visits.
+follows the reader's light or dark theme, and both the pause length and whether
+it applies at all are remembered between visits.
 
 The desktop app is still one digit at a time on a square pad; the strip only
 makes sense with the width to write across.
