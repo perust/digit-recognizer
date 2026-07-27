@@ -71,12 +71,14 @@ That field is an ordinary text entry: correct a misread digit by hand, type into
 it directly, select part of it, or hit Copy to put the whole thing on the
 clipboard.
 
-The wait is 1.2 seconds rather than one, because 4, 5 and a crossed 7 take two
-strokes and the gap while the mouse travels to the second one is easily most of
-a second. Commit too eagerly and a "4" is filed as "1" followed by another "1" —
-which is worse than being slow, since it inserts a wrong digit *and* splits the
-intended one. Showing the countdown is what makes the rest of it work: you can
-see the add coming and keep drawing.
+The wait is 0.6 seconds. What it trades against is two-stroke digits — 4, 5, a
+crossed 7 — where the pointer has to travel to the second stroke before the
+timer runs out; miss it and a "4" is filed as "6" followed by "1", inserting a
+wrong digit *and* splitting the intended one. In practice there is more room
+than the number suggests, because the 150 ms prediction debounce is spent first:
+a measured 800 ms between strokes still comes out as one digit, and 1000 ms is
+where it breaks. Showing the countdown is what makes the rest of it work — you
+can see the add coming and keep drawing, which cancels it.
 
 The app bundle records the absolute path of both this folder and the
 interpreter, because Finder launches an app with almost nothing on its PATH.
@@ -107,7 +109,7 @@ The page needs a server rather than a `file://` URL only because ES modules and
 `fetch` require an origin. Nothing is uploaded; the 852 KB of weights are the
 whole download.
 
-It behaves like the desktop app, down to the keys and the 1.2 second pause that
+It behaves like the desktop app, down to the keys and the 0.6 second pause that
 collects a digit on its own. Drawing works with a finger as well as a mouse, the
 page follows the reader's light or dark theme, and the automatic-add setting is
 remembered between visits.

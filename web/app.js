@@ -10,11 +10,13 @@ import { IMAGE_SIZE, fetchModel, preprocess } from './digit-model.js';
 const PEN_WIDTH = 22; // matches the desktop app, so a stroke survives the shrink to 28px
 const PREDICT_DELAY_MS = 150; // idle time before the prediction is refreshed
 
-// How long the pen has to rest before the digit is added on its own. Kept well
-// above a second because 4, 5 and a crossed 7 take two strokes, and the gap
-// while the pointer travels to the second one is easily most of a second;
-// commit too eagerly and a "4" is filed as "1" followed by another "1".
-const AUTO_COMMIT_MS = 1200;
+// How long the pen has to rest before the digit is added on its own. Short
+// enough that writing a number does not feel like waiting; the cost is that a
+// two-stroke digit -- 4, 5, a crossed 7 -- is filed early if the pointer takes
+// longer than this to reach the second stroke, turning a "4" into "1" then "1".
+// Starting a stroke calls a pending add off and Backspace takes one back, which
+// is what keeps that recoverable rather than merely annoying.
+const AUTO_COMMIT_MS = 600;
 const AUTO_COMMIT_KEY = 'digit-recognizer:auto-commit';
 
 const pad = document.getElementById('pad');
@@ -30,7 +32,10 @@ const undoButton = document.getElementById('undo');
 const copyButton = document.getElementById('copy');
 const wipeButton = document.getElementById('wipe');
 const autoToggle = document.getElementById('auto');
+const autoLabel = document.getElementById('auto-label');
 const countdown = document.getElementById('countdown');
+
+autoLabel.textContent = `Add on its own after a ${(AUTO_COMMIT_MS / 1000).toFixed(1)} second pause`;
 
 const context = pad.getContext('2d', { willReadFrequently: true });
 const previewContext = preview.getContext('2d');

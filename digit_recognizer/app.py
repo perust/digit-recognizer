@@ -26,11 +26,13 @@ PEN_WIDTH = 22  # thick enough to survive the 10x downscale to 28x28
 PREVIEW_SCALE = 4  # magnification of the 28x28 image fed to the model
 PREDICT_DELAY_MS = 150  # idle time before the prediction is refreshed
 
-# How long the pen has to rest before the digit is added on its own.  Kept well
-# above a second because 4, 5 and a crossed 7 take two strokes, and the gap
-# while the mouse travels to the second one is easily most of a second; commit
-# too eagerly and a "4" is filed as "1" followed by another "1".
-AUTO_COMMIT_MS = 1200
+# How long the pen has to rest before the digit is added on its own.  Short
+# enough that writing a number does not feel like waiting; the cost is that a
+# two-stroke digit -- 4, 5, a crossed 7 -- is filed early if the mouse takes
+# longer than this to reach the second stroke, turning a "4" into "1" then "1".
+# Starting a stroke calls a pending add off and Backspace takes one back, which
+# is what keeps that recoverable rather than merely annoying.
+AUTO_COMMIT_MS = 600
 COUNTDOWN_TICK_MS = 25  # how often the progress bar is redrawn
 COUNTDOWN_HEIGHT = 4
 
