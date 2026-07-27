@@ -58,6 +58,12 @@
     cursor: crosshair;
     touch-action: none; /* let a finger draw instead of scrolling the page */
   }
+  /* Fills up while the pen rests, then the digit is added. Showing the wait
+     rather than hiding it is what makes the automatic add legible: you can see
+     it coming and carry on drawing to call it off. */
+  .countdown { max-width: 300px; height: 4px; margin-top: 5px; border-radius: 999px; overflow: hidden; }
+  .countdown span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; }
+
   .controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; max-width: 300px; }
   button {
     padding: 8px 16px;
@@ -107,6 +113,9 @@
   #output:focus { outline: none; border-color: var(--accent); }
   #output::placeholder { font-size: 14px; letter-spacing: normal; color: var(--muted); }
 
+  .auto { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .auto input { accent-color: var(--accent); margin: 0; }
+
   .preview { margin: 20px 0 0; }
   .preview canvas {
     width: 112px; height: 112px;
@@ -126,15 +135,16 @@
 <body>
 <main>
   <h1>Handwritten Digit Recognizer</h1>
-  <p class="lede">Draw a digit from 0 to 9, press Enter to collect it, and keep going for a
-    longer number. The network runs in this page — nothing is uploaded.</p>
+  <p class="lede">Draw a digit from 0 to 9 and pause; it is collected below and the pad clears
+    for the next one. The network runs in this page — nothing is uploaded.</p>
 
   <div class="panels">
     <section class="draw">
       <canvas id="pad" width="300" height="300" aria-label="Drawing area for a single digit"></canvas>
+      <div class="countdown" aria-hidden="true"><span id="countdown"></span></div>
       <div class="controls">
         <button id="clear" type="button">Clear</button>
-        <span class="hint">Draw large, then press Enter.</span>
+        <span class="hint">Draw large, then pause.</span>
       </div>
     </section>
 
@@ -156,9 +166,15 @@
     <input id="output" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
            placeholder="draw a digit and press Enter to add it here" />
     <button id="add" type="button">Add&nbsp;&nbsp;⏎</button>
+    <button id="undo" type="button">Undo&nbsp;&nbsp;⌫</button>
     <button id="copy" type="button">Copy</button>
     <button id="wipe" type="button">Erase</button>
   </section>
+
+  <label class="auto">
+    <input type="checkbox" id="auto" checked />
+    Add on its own after a 1.2 second pause
+  </label>
 
   <footer>
     A convolutional network trained on MNIST, 99.5% on the test set. The digit is

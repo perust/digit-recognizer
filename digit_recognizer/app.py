@@ -3,13 +3,14 @@
     python3 -m digit_recognizer.app
 
 Draw with the mouse; the prediction refreshes shortly after you stop moving.
-Enter adds the digit to the field along the bottom and clears the pad for the
-next one, so a longer number can be written a digit at a time and then copied
-out. Press "c" or the Clear button to start over.
+Rest the pen and the digit adds itself to the field along the bottom, so a
+longer number can be written a digit at a time and then copied out. Enter adds
+it immediately, Backspace takes the last one back, and "c" clears the pad.
 """
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
@@ -24,6 +25,14 @@ CANVAS_SIZE = 300  # side of the drawing board, in screen pixels
 PEN_WIDTH = 22  # thick enough to survive the 10x downscale to 28x28
 PREVIEW_SCALE = 4  # magnification of the 28x28 image fed to the model
 PREDICT_DELAY_MS = 150  # idle time before the prediction is refreshed
+
+# How long the pen has to rest before the digit is added on its own.  Kept well
+# above a second because 4, 5 and a crossed 7 take two strokes, and the gap
+# while the mouse travels to the second one is easily most of a second; commit
+# too eagerly and a "4" is filed as "1" followed by another "1".
+AUTO_COMMIT_MS = 1200
+COUNTDOWN_TICK_MS = 25  # how often the progress bar is redrawn
+COUNTDOWN_HEIGHT = 4
 
 BACKGROUND = "#1b1d21"
 PANEL = "#25282e"
@@ -59,6 +68,11 @@ class DigitRecognizerApp(tk.Tk):
         # What the board currently reads, and the digits committed so far.
         self._reading: int | None = None
         self.digits = tk.StringVar()
+
+        self._drawing = False
+        self.auto_commit = tk.BooleanVar(value=True)
+        self._auto_deadline: float | None = None
+        self._countdown_job: str | None = None
 
         self._build_layout()
         self._clear()
@@ -123,18 +137,30 @@ class DigitRecognizerApp(tk.Tk):
         self.canvas.pack()
         self.canvas.bind("<Button-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag)
-        self.canvas.bind("<ButtonRelease-1>", lambda _event: self._schedule_prediction())
+        self.canvas.bind("<ButtonRelease-1>", self._on_release)
         self.bind("<KeyPress-c>", self._on_clear_key)
         self.bind("<Return>", lambda _event: self._commit_digit())
+        self.bind("<BackSpace>", self._on_backspace)
         self.focus_set()
+
+        # Fills up while the pen rests, then the digit is added. Showing the
+        # wait rather than hiding it is what makes the automatic add legible:
+        # you can see it coming and carry on drawing to call it off.
+        self.countdown = tk.Canvas(
+            column, width=CANVAS_SIZE, height=COUNTDOWN_HEIGHT, bg=BACKGROUND, highlightthickness=0
+        )
+        self.countdown.pack(pady=(4, 0))
+        self._countdown_bar = self.countdown.create_rectangle(
+            0, 0, 0, COUNTDOWN_HEIGHT, fill=ACCENT, width=0
+        )
 
         tk.Label(
             column,
-            text="Draw one digit large, then press Enter to add it below.",
+            text="Draw one digit large, then pause — or press Enter.",
             font=("Helvetica", 11),
             fg=MUTED,
             bg=BACKGROUND,
-        ).pack(pady=(10, 8))
+        ).pack(pady=(8, 8))
 
         tk.Button(
             column,
@@ -189,6 +215,21 @@ class DigitRecognizerApp(tk.Tk):
         row = tk.Frame(root, bg=BACKGROUND)
         row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(16, 0))
 
+        tk.Checkbutton(
+            root,
+            text=f"Add on its own after a {AUTO_COMMIT_MS / 1000:.1f}s pause",
+            variable=self.auto_commit,
+            command=self._on_auto_commit_toggled,
+            font=("Helvetica", 11),
+            fg=MUTED,
+            bg=BACKGROUND,
+            activebackground=BACKGROUND,
+            activeforeground=INK,
+            selectcolor=PANEL,
+            highlightthickness=0,
+            bd=0,
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
         tk.Label(
             row, text="Digits", font=("Helvetica", 11), fg=MUTED, bg=BACKGROUND
         ).pack(side="left", padx=(0, 8))
@@ -214,6 +255,10 @@ class DigitRecognizerApp(tk.Tk):
         for button in (
             tk.Button(
                 row, text="Add  ⏎", command=self._commit_digit,
+                font=("Helvetica", 12), highlightbackground=BACKGROUND,
+            ),
+            tk.Button(
+                row, text="Undo  ⌫", command=self._undo_digit,
                 font=("Helvetica", 12), highlightbackground=BACKGROUND,
             ),
             self.copy_button,
@@ -252,6 +297,8 @@ class DigitRecognizerApp(tk.Tk):
     # --------------------------------------------------------------- drawing
 
     def _on_press(self, event: tk.Event) -> None:
+        self._drawing = True
+        self._cancel_auto_commit()  # a new stroke means the digit is not finished
         self._last_point = (event.x, event.y)
         radius = PEN_WIDTH / 2
         # A click without a drag should still leave a mark.
@@ -277,11 +324,16 @@ class DigitRecognizerApp(tk.Tk):
         self._last_point = (event.x, event.y)
         self._schedule_prediction()
 
+    def _on_release(self, _event: tk.Event) -> None:
+        self._drawing = False
+        self._schedule_prediction()
+
     def _stamp(self, x: int, y: int) -> None:
         radius = PEN_WIDTH / 2
         self._draw.ellipse([x - radius, y - radius, x + radius, y + radius], fill=255)
 
     def _clear(self) -> None:
+        self._cancel_auto_commit()
         self.canvas.delete("all")
         self._draw.rectangle([0, 0, CANVAS_SIZE, CANVAS_SIZE], fill=0)
         self._last_point = None
@@ -292,6 +344,45 @@ class DigitRecognizerApp(tk.Tk):
         if self.focus_get() is self.entry:
             return
         self._clear()
+
+    # -------------------------------------------------------- automatic adding
+
+    def _start_auto_commit(self) -> None:
+        """Begin the wait after which a resting digit adds itself."""
+        self._auto_deadline = time.monotonic() + AUTO_COMMIT_MS / 1000
+        self._tick_countdown()
+
+    def _cancel_auto_commit(self) -> None:
+        self._auto_deadline = None
+        if self._countdown_job is not None:
+            self.after_cancel(self._countdown_job)
+            self._countdown_job = None
+        self.countdown.coords(self._countdown_bar, 0, 0, 0, COUNTDOWN_HEIGHT)
+
+    def _tick_countdown(self) -> None:
+        """Advance the bar, and commit once it is full."""
+        self._countdown_job = None
+        if self._auto_deadline is None:
+            return
+
+        remaining = self._auto_deadline - time.monotonic()
+        if remaining <= 0:
+            self._auto_deadline = None
+            self._commit_digit()
+            return
+
+        elapsed = 1 - remaining / (AUTO_COMMIT_MS / 1000)
+        self.countdown.coords(
+            self._countdown_bar, 0, 0, CANVAS_SIZE * elapsed, COUNTDOWN_HEIGHT
+        )
+        self._countdown_job = self.after(COUNTDOWN_TICK_MS, self._tick_countdown)
+
+    def _on_auto_commit_toggled(self) -> None:
+        if self.auto_commit.get():
+            if self._reading is not None and not self._drawing:
+                self._start_auto_commit()
+        else:
+            self._cancel_auto_commit()
 
     # ----------------------------------------------------------- collected text
 
@@ -305,6 +396,22 @@ class DigitRecognizerApp(tk.Tk):
         # Back to the window itself, so the next "c" reaches the pad rather
         # than typing a letter into the field the Add button may have focused.
         self.focus_set()
+
+    def _undo_digit(self) -> None:
+        """Drop the digit added last.
+
+        The safety net for the automatic add: when a two-stroke digit gets
+        filed halfway through, one press takes it back.
+        """
+        self.digits.set(self.digits.get()[:-1])
+        self.entry.icursor(tk.END)
+
+    def _on_backspace(self, _event: tk.Event) -> None:
+        # Inside the field, Backspace is ordinary text editing; outside it,
+        # it undoes the last digit that was collected.
+        if self.focus_get() is self.entry:
+            return
+        self._undo_digit()
 
     def _copy_digits(self) -> None:
         text = self.digits.get()
@@ -342,6 +449,9 @@ class DigitRecognizerApp(tk.Tk):
         )[0]
         self._show_result(probabilities)
         self._show_preview(digit_image)
+        # Only once the pen is up: holding still mid-stroke is not a finished digit.
+        if self.auto_commit.get() and not self._drawing:
+            self._start_auto_commit()
 
     def _show_result(self, probabilities: np.ndarray) -> None:
         best = int(np.argmax(probabilities))

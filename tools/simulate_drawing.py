@@ -19,7 +19,7 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
-from digit_recognizer.app import DigitRecognizerApp  # noqa: E402
+from digit_recognizer.app import AUTO_COMMIT_MS, DigitRecognizerApp  # noqa: E402
 
 # The paths live in a fixture rather than in this file because the browser
 # build's test suite replays the very same strokes; sharing the data is what
@@ -74,9 +74,32 @@ def main() -> None:
     pasted = app.clipboard_get()
     print(f"clipboard      : {pasted!r}")
 
+    automatic = check_auto_commit(app)
+    print(f"pen left resting -> collected {automatic!r} with no key pressed")
+
     app.destroy()
-    ok = correct == len(STROKES) and collected == expected_text and pasted == expected_text
+    ok = (
+        correct == len(STROKES)
+        and collected == expected_text
+        and pasted == expected_text
+        and automatic == "5"
+    )
     sys.exit(0 if ok else 1)
+
+
+def check_auto_commit(app: DigitRecognizerApp) -> str:
+    """Write a 5, drop the pen, and let the timers run without touching a key.
+
+    Needs a real event loop: the countdown and the prediction debounce are both
+    `after` callbacks, which never fire while the rest of this script drives the
+    app synchronously.
+    """
+    app.digits.set("")
+    write(app, STROKES[5])
+    app._on_release(None)  # pen up is what arms the countdown
+    app.after(AUTO_COMMIT_MS + 900, app.quit)
+    app.mainloop()
+    return app.digits.get()
 
 
 if __name__ == "__main__":

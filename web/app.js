@@ -10,6 +10,13 @@ import { IMAGE_SIZE, fetchModel, preprocess } from './digit-model.js';
 const PEN_WIDTH = 22; // matches the desktop app, so a stroke survives the shrink to 28px
 const PREDICT_DELAY_MS = 150; // idle time before the prediction is refreshed
 
+// How long the pen has to rest before the digit is added on its own. Kept well
+// above a second because 4, 5 and a crossed 7 take two strokes, and the gap
+// while the pointer travels to the second one is easily most of a second;
+// commit too eagerly and a "4" is filed as "1" followed by another "1".
+const AUTO_COMMIT_MS = 1200;
+const AUTO_COMMIT_KEY = 'digit-recognizer:auto-commit';
+
 const pad = document.getElementById('pad');
 const preview = document.getElementById('preview');
 const digitLabel = document.getElementById('digit');
@@ -19,8 +26,11 @@ const verdict = document.getElementById('verdict');
 const clearButton = document.getElementById('clear');
 const output = document.getElementById('output');
 const addButton = document.getElementById('add');
+const undoButton = document.getElementById('undo');
 const copyButton = document.getElementById('copy');
 const wipeButton = document.getElementById('wipe');
+const autoToggle = document.getElementById('auto');
+const countdown = document.getElementById('countdown');
 
 const context = pad.getContext('2d', { willReadFrequently: true });
 const previewContext = preview.getContext('2d');
@@ -30,6 +40,26 @@ let model = null;
 let pendingPrediction = 0;
 let drawing = false;
 let reading = null; // the digit the pad currently shows, or null when it is blank
+let autoTimer = 0;
+
+autoToggle.checked = remembered(AUTO_COMMIT_KEY) !== 'off';
+
+/** Storage throws rather than degrading in some privacy modes, so ask carefully. */
+function remembered(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function remember(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // A preference that cannot be stored is not worth failing over.
+  }
+}
 
 // --------------------------------------------------------------------- setup
 
@@ -48,6 +78,7 @@ context.lineCap = 'round';
 context.lineJoin = 'round';
 
 function clear() {
+  cancelAutoCommit();
   context.fillStyle = '#000';
   context.fillRect(0, 0, pad.width, pad.height);
   // Back to the pen colour straight away: the same fillStyle draws the dot a
@@ -81,6 +112,7 @@ function canvasPoint(event) {
 
 pad.addEventListener('pointerdown', (event) => {
   drawing = true;
+  cancelAutoCommit(); // a new stroke means the digit is not finished
   pad.setPointerCapture(event.pointerId);
   const { x, y } = canvasPoint(event);
   // A tap with no drag should still leave a mark.
@@ -117,10 +149,43 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
     commitDigit();
-  } else if (event.key === 'c' && event.target !== output) {
-    // "c" wipes the pad, unless it is being typed into the digits field.
+    return;
+  }
+  // Inside the field the keyboard is ordinary text editing; the shortcuts
+  // below only apply everywhere else.
+  if (event.target === output) return;
+  if (event.key === 'Backspace') {
+    event.preventDefault();
+    undoDigit();
+  } else if (event.key === 'c') {
     clear();
   }
+});
+
+// -------------------------------------------------------- automatic adding
+
+/** Begin the wait after which a resting digit adds itself. */
+function startAutoCommit() {
+  cancelAutoCommit();
+  countdown.style.transition = 'none';
+  countdown.style.width = '0%';
+  void countdown.offsetWidth; // flush, or the reset is folded into the animation
+  countdown.style.transition = `width ${AUTO_COMMIT_MS}ms linear`;
+  countdown.style.width = '100%';
+  autoTimer = setTimeout(commitDigit, AUTO_COMMIT_MS);
+}
+
+function cancelAutoCommit() {
+  clearTimeout(autoTimer);
+  autoTimer = 0;
+  countdown.style.transition = 'none';
+  countdown.style.width = '0%';
+}
+
+autoToggle.addEventListener('change', () => {
+  remember(AUTO_COMMIT_KEY, autoToggle.checked ? 'on' : 'off');
+  if (autoToggle.checked && reading !== null && !drawing) startAutoCommit();
+  else if (!autoToggle.checked) cancelAutoCommit();
 });
 
 // ------------------------------------------------------------ collected text
@@ -132,7 +197,16 @@ function commitDigit() {
   clear();
 }
 
+/**
+ * Drop the digit added last. The safety net for the automatic add: when a
+ * two-stroke digit gets filed halfway through, one press takes it back.
+ */
+function undoDigit() {
+  output.value = output.value.slice(0, -1);
+}
+
 addButton.addEventListener('click', commitDigit);
+undoButton.addEventListener('click', undoDigit);
 wipeButton.addEventListener('click', () => {
   output.value = '';
   output.focus();
@@ -174,6 +248,8 @@ function predict() {
   }
   showResult(model.predict(image));
   showPreview(image);
+  // Only once the pen is up: holding still mid-stroke is not a finished digit.
+  if (autoToggle.checked && !drawing) startAutoCommit();
 }
 
 /** The pad only ever holds white on black, so any channel is the intensity. */
