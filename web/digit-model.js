@@ -11,6 +11,61 @@ export const IMAGE_SIZE = 28; // side of the frame the network expects
 export const DIGIT_BOX = 20; // side of the box the digit is scaled to fit
 export const INK_THRESHOLD = 0.12; // above this, on a 0..1 scale, counts as ink
 
+// Two digits written next to each other need at least this much clear space
+// between them to be read apart: whichever is larger of a fixed floor and a
+// share of how tall the writing is, so it follows big and small hands alike.
+export const MIN_DIGIT_GAP = 12;
+export const DIGIT_GAP_RATIO = 0.12;
+
+// ------------------------------------------------------------- segmentation
+
+/**
+ * Split strokes written along a strip into one group per digit.
+ *
+ * Time alone cannot do this: write quickly and two digits fall inside the same
+ * window, write slowly and a two-stroke digit is cut in half. Horizontal gaps
+ * can, because the strokes *within* a digit overlap across the page -- the bar
+ * of a 4 crosses its diagonal, the top of a 5 sits over its curve -- while
+ * neighbouring digits do not. Groups come back in writing order, left to right.
+ *
+ * @param {Array<{points: Array<[number, number]>}>} strokes
+ */
+export function segmentStrokes(strokes, options = {}) {
+  const { minGap = MIN_DIGIT_GAP, gapRatio = DIGIT_GAP_RATIO } = options;
+  if (strokes.length === 0) return [];
+
+  const bounds = strokes.map(strokeBounds);
+  const writingHeight = Math.max(...bounds.map((box) => box.maxY - box.minY));
+  const gap = Math.max(minGap, writingHeight * gapRatio);
+
+  const leftToRight = bounds.map((_, index) => index).sort((a, b) => bounds[a].minX - bounds[b].minX);
+  const groups = [];
+  for (const index of leftToRight) {
+    const open = groups[groups.length - 1];
+    if (open && bounds[index].minX <= open.maxX + gap) {
+      open.maxX = Math.max(open.maxX, bounds[index].maxX);
+      open.strokes.push(strokes[index]);
+    } else {
+      groups.push({ minX: bounds[index].minX, maxX: bounds[index].maxX, strokes: [strokes[index]] });
+    }
+  }
+  return groups;
+}
+
+function strokeBounds(stroke) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of stroke.points) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
 // ---------------------------------------------------------------- preprocess
 
 /**

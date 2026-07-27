@@ -15,7 +15,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DigitModel, IMAGE_SIZE, DIGIT_BOX, INK_THRESHOLD, preprocess } from '../web/digit-model.js';
+import {
+  DigitModel, IMAGE_SIZE, DIGIT_BOX, INK_THRESHOLD, preprocess, segmentStrokes,
+} from '../web/digit-model.js';
 
 const PROJECT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,36 +37,37 @@ const strokeFixture = readJson('tests/fixtures/strokes.json');
  * Rasterise pen strokes the way a canvas would: round caps and joins, and
  * antialiased edges, approximated by sampling twice per pixel per axis.
  */
-function draw(strokes, size, penWidth) {
+function draw(strokes, width, height, penWidth) {
   const scale = 2;
-  const big = size * scale;
+  const bigW = width * scale;
+  const bigH = height * scale;
   const radius = (penWidth / 2) * scale;
-  const mask = new Float32Array(big * big);
+  const mask = new Float32Array(bigW * bigH);
 
   for (const stroke of strokes) {
     for (let i = 0; i < stroke.length; i++) {
       const [ax, ay] = stroke[i].map((v) => v * scale);
       const [bx, by] = (stroke[i + 1] ?? stroke[i]).map((v) => v * scale);
       const minX = Math.max(0, Math.floor(Math.min(ax, bx) - radius));
-      const maxX = Math.min(big - 1, Math.ceil(Math.max(ax, bx) + radius));
+      const maxX = Math.min(bigW - 1, Math.ceil(Math.max(ax, bx) + radius));
       const minY = Math.max(0, Math.floor(Math.min(ay, by) - radius));
-      const maxY = Math.min(big - 1, Math.ceil(Math.max(ay, by) + radius));
+      const maxY = Math.min(bigH - 1, Math.ceil(Math.max(ay, by) + radius));
       for (let y = minY; y <= maxY; y++) {
         for (let x = minX; x <= maxX; x++) {
-          if (distanceToSegment(x, y, ax, ay, bx, by) <= radius) mask[y * big + x] = 1;
+          if (distanceToSegment(x, y, ax, ay, bx, by) <= radius) mask[y * bigW + x] = 1;
         }
       }
     }
   }
 
-  const out = new Float32Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  const out = new Float32Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       let total = 0;
       for (let dy = 0; dy < scale; dy++) {
-        for (let dx = 0; dx < scale; dx++) total += mask[(y * scale + dy) * big + x * scale + dx];
+        for (let dx = 0; dx < scale; dx++) total += mask[(y * scale + dy) * bigW + x * scale + dx];
       }
-      out[y * size + x] = total / (scale * scale);
+      out[y * width + x] = total / (scale * scale);
     }
   }
   return out;
@@ -78,14 +81,29 @@ function distanceToSegment(px, py, ax, ay, bx, by) {
   return Math.hypot(px - ax - t * dx, py - ay - t * dy);
 }
 
-const drawDigit = (digit, transform = (point) => point) =>
-  draw(
-    strokeFixture.strokes[String(digit)].map((stroke) => stroke.map(transform)),
-    strokeFixture.canvasSize,
-    strokeFixture.penWidth,
-  );
-
 const CANVAS = strokeFixture.canvasSize;
+
+const strokesOf = (digit, transform = (point) => point) =>
+  strokeFixture.strokes[String(digit)].map((stroke) => stroke.map(transform));
+
+const drawDigit = (digit, transform = (point) => point) =>
+  draw(strokesOf(digit, transform), CANVAS, CANVAS, strokeFixture.penWidth);
+
+// The strip the browser writes on: wide enough for several digits in a row.
+const STRIP_WIDTH = 640;
+const STRIP_HEIGHT = 200;
+const STRIP_SCALE = STRIP_HEIGHT / CANVAS;
+const STRIP_PEN = strokeFixture.penWidth * STRIP_SCALE;
+const DIGIT_PITCH = 120; // how far apart consecutive digits are placed
+
+/** Lay digits along the strip the way a hand would, left to right. */
+const placeAlongStrip = (digits) =>
+  digits.flatMap((digit, index) =>
+    strokesOf(digit, ([x, y]) => [
+      x * STRIP_SCALE + index * DIGIT_PITCH - 20,
+      y * STRIP_SCALE,
+    ]).map((points) => ({ points })),
+  );
 
 function inkBox(image) {
   let top = IMAGE_SIZE, left = IMAGE_SIZE, bottom = -1, right = -1;
@@ -197,4 +215,46 @@ test('reads all ten strokes the desktop app is tested with', () => {
     if (predicted !== digit) misread.push(`${digit} read as ${predicted}`);
   }
   assert.deepEqual(misread, [], 'every stroke should be read back correctly');
+});
+
+// -------------------------------------------------- writing several in a row
+
+test('a digit written in two strokes stays one digit', () => {
+  // A 4 is a diagonal and a bar that crosses it: separate strokes, one digit.
+  for (const digit of [3, 4, 8, 9]) {
+    const written = strokesOf(digit).map((points) => ({ points }));
+    assert.ok(written.length > 1, `digit ${digit} should be a multi-stroke test case`);
+    assert.equal(segmentStrokes(written).length, 1, `digit ${digit} was split apart`);
+  }
+});
+
+test('digits written side by side are told apart, in writing order', () => {
+  const groups = segmentStrokes(placeAlongStrip([2, 0, 2, 6]));
+  assert.equal(groups.length, 4);
+  for (let i = 1; i < groups.length; i++) {
+    assert.ok(groups[i - 1].maxX < groups[i].minX, 'groups should come back left to right');
+  }
+});
+
+test('a gap narrower than the threshold keeps neighbours together', () => {
+  // Two bars a hair apart are one group; the same bars spaced out are two.
+  const close = [{ points: [[100, 20], [100, 180]] }, { points: [[108, 20], [108, 180]] }];
+  const apart = [{ points: [[100, 20], [100, 180]] }, { points: [[220, 20], [220, 180]] }];
+  assert.equal(segmentStrokes(close).length, 1);
+  assert.equal(segmentStrokes(apart).length, 2);
+});
+
+test('a number written across the strip reads back in order', () => {
+  for (const expected of [[2, 0, 2, 6], [4, 1, 5], [7, 3, 9, 0, 8]]) {
+    const groups = segmentStrokes(placeAlongStrip(expected));
+    assert.equal(groups.length, expected.length, `expected ${expected.length} digits`);
+
+    // Each group is rasterised on its own, exactly as the page does it.
+    const read = groups.map((group) => {
+      const ink = draw(group.strokes.map((s) => s.points), STRIP_WIDTH, STRIP_HEIGHT, STRIP_PEN);
+      const probabilities = model.predict(preprocess(ink, STRIP_WIDTH, STRIP_HEIGHT));
+      return probabilities.indexOf(Math.max(...probabilities));
+    });
+    assert.deepEqual(read, expected, `wrote ${expected.join('')}, read ${read.join('')}`);
+  }
 });

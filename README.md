@@ -12,7 +12,7 @@ digit_recognizer/
   predict.py      command line classifier for image files
   app.py          tkinter drawing board with live predictions
 web/
-  index.html      the browser version, no build step and no framework
+  index.html      the browser version: a strip you write a whole number across
   digit-model.js  the same preprocessing and network, ported to JavaScript
   app.js          canvas drawing and the readout
   model.json      layer plan and quantisation scales, written by the exporter
@@ -96,7 +96,7 @@ to open that file for you.
 Draw one digit at a time and make it large; a stroke that covers most of the
 box downscales to roughly the thickness the network was trained on.
 
-## Draw in a browser
+## Write in a browser
 
 `web/` is a static page with no build step and no dependencies — open it through
 any web server and the network runs locally in the tab:
@@ -109,10 +109,26 @@ The page needs a server rather than a `file://` URL only because ES modules and
 `fetch` require an origin. Nothing is uploaded; the 852 KB of weights are the
 whole download.
 
-It behaves like the desktop app, down to the keys and the 0.6 second pause that
-collects a digit on its own. Drawing works with a finger as well as a mouse, the
-page follows the reader's light or dark theme, and the automatic-add setting is
-remembered between visits.
+The browser version takes a whole number rather than one digit: write across the
+strip and each digit is read and collected as you move on to the next, its ink
+fading once it has been taken. The last digit, with nothing after it to settle
+it, is taken after the same 0.6 second pause.
+
+Digits are told apart by the gaps between them, not by time. Time alone cannot
+do it — write quickly and two digits fall inside one window, write slowly and a
+two-stroke digit is cut in half — whereas the strokes *within* a digit overlap
+horizontally, since the bar of a 4 crosses its diagonal and the top of a 5 sits
+over its curve. `segmentStrokes` in `digit-model.js` splits on horizontal gaps
+and so never cuts a digit in half; `tests/test_web.mjs` writes 2026, 415 and
+73908 across a strip and checks they read back in order.
+
+Writing works with a finger as well as a mouse, the strip keeps its height and
+takes the width of the page rather than being squashed on a phone, the page
+follows the reader's light or dark theme, and the pause setting is remembered
+between visits.
+
+The desktop app is still one digit at a time on a square pad; the strip only
+makes sense with the width to write across.
 
 Re-export the weights after retraining:
 

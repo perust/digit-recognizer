@@ -4,10 +4,10 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Handwritten Digit Recognizer</title>
-<meta name="description" content="Draw a digit and a convolutional network trained on MNIST reads it back, running entirely in the browser." />
+<meta name="description" content="Write digits across a strip and a convolutional network trained on MNIST reads them back as you go, running entirely in the browser." />
 <meta name="color-scheme" content="dark light" />
 <style>
-  /* The page chrome follows the reader's theme; the drawing pad stays dark,
+  /* The page chrome follows the reader's theme; the writing strip stays dark,
      because the network was trained on white strokes over black. */
   :root {
     --page: #f6f7f9;
@@ -44,27 +44,29 @@
   h1 { margin: 0 0 6px; font-size: clamp(20px, 4vw, 26px); letter-spacing: -0.01em; }
   .lede { margin: 0 0 24px; color: var(--muted); font-size: 15px; }
 
-  .panels { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-  .draw, .result { flex: 1 1 280px; min-width: 0; }
-
   canvas#pad {
     display: block;
+    /* Height is fixed and the width follows the page: squashing the strip to
+       fit a phone would leave too little room to write in, and stretching the
+       backing store to a different shape would skew every stroke. app.js
+       resizes the backing store to match, keeping one canvas pixel per CSS
+       pixel so pointer coordinates need no correction. */
     width: 100%;
-    max-width: 300px;
-    aspect-ratio: 1;
+    height: 200px;
     background: var(--pad);
     border: 1px solid var(--edge);
     border-radius: 12px;
     cursor: crosshair;
-    touch-action: none; /* let a finger draw instead of scrolling the page */
+    touch-action: none; /* let a finger write instead of scrolling the page */
   }
-  /* Fills up while the pen rests, then the digit is added. Showing the wait
-     rather than hiding it is what makes the automatic add legible: you can see
-     it coming and carry on drawing to call it off. */
-  .countdown { max-width: 300px; height: 4px; margin-top: 5px; border-radius: 999px; overflow: hidden; }
+
+  /* Fills up while the pen rests, then the last digit is taken. Showing the
+     wait rather than hiding it is what makes the automatic read legible: you
+     can see it coming and carry on writing to call it off. */
+  .countdown { height: 4px; margin-top: 5px; border-radius: 999px; overflow: hidden; }
   .countdown span { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 999px; }
 
-  .controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; max-width: 300px; }
+  .controls { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
   button {
     padding: 8px 16px;
     font: inherit;
@@ -76,26 +78,9 @@
     cursor: pointer;
   }
   button:hover { border-color: var(--accent); }
-  button:disabled { opacity: 0.5; cursor: default; }
   .hint { font-size: 13px; color: var(--muted); }
 
-  .verdict { display: flex; align-items: baseline; gap: 12px; min-height: 64px; }
-  #digit { font-size: 56px; font-weight: 700; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
-  /* Before anything is drawn the placeholder should read as absence, not as a
-     result: in the accent colour a lone dash looks like a stray blue bar. */
-  .verdict.is-blank #digit { color: var(--track); }
-  #confidence { font-size: 14px; color: var(--muted); }
-
-  .bars { list-style: none; margin: 16px 0 0; padding: 0; }
-  .bars li { display: grid; grid-template-columns: 16px 1fr 52px; align-items: center; gap: 10px; padding: 2px 0; }
-  .bars b { font-weight: 600; font-size: 13px; color: var(--muted); text-align: center; }
-  .bars .track { height: 9px; background: var(--track); border-radius: 999px; overflow: hidden; }
-  .bars .fill { display: block; height: 100%; width: 0; background: var(--track); border-radius: 999px; transition: width 120ms ease; }
-  .bars li.top .fill { background: var(--accent); }
-  .bars li.top b, .bars li.top .value { color: var(--text); }
-  .bars .value { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
-
-  .collect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 28px; }
+  .collect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 22px; }
   .collect label { font-size: 13px; color: var(--muted); }
   #output {
     flex: 1 1 200px;
@@ -116,7 +101,26 @@
   .auto { display: flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 13px; color: var(--muted); }
   .auto input { accent-color: var(--accent); margin: 0; }
 
-  .preview { margin: 20px 0 0; }
+  .panels { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--edge); }
+  .reading { flex: 1 1 260px; min-width: 0; }
+
+  .verdict { display: flex; align-items: baseline; gap: 12px; }
+  #digit { font-size: 46px; font-weight: 700; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+  /* Before anything is written the placeholder should read as absence, not as a
+     result: in the accent colour a lone dash looks like a stray blue bar. */
+  .verdict.is-blank #digit { color: var(--track); }
+  #confidence { font-size: 14px; color: var(--muted); }
+
+  .bars { list-style: none; margin: 14px 0 0; padding: 0; }
+  .bars li { display: grid; grid-template-columns: 16px 1fr 52px; align-items: center; gap: 10px; padding: 1px 0; }
+  .bars b { font-weight: 600; font-size: 13px; color: var(--muted); text-align: center; }
+  .bars .track { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; }
+  .bars .fill { display: block; height: 100%; width: 0; background: var(--track); border-radius: 999px; transition: width 120ms ease; }
+  .bars li.top .fill { background: var(--accent); }
+  .bars li.top b, .bars li.top .value { color: var(--text); }
+  .bars .value { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+  .preview { margin: 0; flex: 0 0 auto; }
   .preview canvas {
     width: 112px; height: 112px;
     background: var(--pad);
@@ -126,7 +130,7 @@
   }
   .preview figcaption { margin-top: 6px; font-size: 12px; color: var(--muted); }
 
-  footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--edge); font-size: 13px; color: var(--muted); }
+  footer { margin-top: 28px; padding-top: 16px; border-top: 1px solid var(--edge); font-size: 13px; color: var(--muted); }
   footer a { color: var(--accent); }
 
   @media (prefers-reduced-motion: reduce) { .bars .fill { transition: none; } }
@@ -135,37 +139,23 @@
 <body>
 <main>
   <h1>Handwritten Digit Recognizer</h1>
-  <p class="lede">Draw a digit from 0 to 9 and pause; it is collected below and the pad clears
-    for the next one. The network runs in this page — nothing is uploaded.</p>
+  <p class="lede">Write digits across the strip, one after another. Each is read and collected as
+    you move on to the next, and its ink fades once it has been taken. The network runs in this
+    page — nothing is uploaded.</p>
 
-  <div class="panels">
-    <section class="draw">
-      <canvas id="pad" width="300" height="300" aria-label="Drawing area for a single digit"></canvas>
-      <div class="countdown" aria-hidden="true"><span id="countdown"></span></div>
-      <div class="controls">
-        <button id="clear" type="button">Clear</button>
-        <span class="hint">Draw large, then pause.</span>
-      </div>
-    </section>
+  <canvas id="pad" width="640" height="200" aria-label="Writing strip for digits"></canvas>
+  <div class="countdown" aria-hidden="true"><span id="countdown"></span></div>
 
-    <section class="result">
-      <div class="verdict is-blank" id="verdict">
-        <span id="digit" aria-live="polite">–</span>
-        <span id="confidence">loading the model…</span>
-      </div>
-      <ol class="bars" id="bars" aria-label="Probability of each digit"></ol>
-      <figure class="preview">
-        <canvas id="preview" width="28" height="28" aria-label="The 28 by 28 image sent to the network"></canvas>
-        <figcaption>model input (28×28)</figcaption>
-      </figure>
-    </section>
+  <div class="controls">
+    <button id="clear" type="button">Clear</button>
+    <span class="hint">Write large, and leave a gap between digits.</span>
   </div>
 
   <section class="collect">
     <label for="output">Digits</label>
     <input id="output" type="text" inputmode="numeric" autocomplete="off" spellcheck="false"
-           placeholder="draw a digit and press Enter to add it here" />
-    <button id="add" type="button">Add&nbsp;&nbsp;⏎</button>
+           placeholder="what you write appears here" />
+    <button id="add" type="button">Take&nbsp;now&nbsp;&nbsp;⏎</button>
     <button id="undo" type="button">Undo&nbsp;&nbsp;⌫</button>
     <button id="copy" type="button">Copy</button>
     <button id="wipe" type="button">Erase</button>
@@ -174,13 +164,28 @@
   <label class="auto">
     <input type="checkbox" id="auto" checked />
     <!-- Filled in from AUTO_COMMIT_MS so the wording cannot drift from the timer. -->
-    <span id="auto-label">Add on its own after a pause</span>
+    <span id="auto-label">Take the last digit after a pause</span>
   </label>
 
+  <section class="panels">
+    <div class="reading">
+      <div class="verdict is-blank" id="verdict">
+        <span id="digit" aria-live="polite">–</span>
+        <span id="confidence">loading the model…</span>
+      </div>
+      <ol class="bars" id="bars" aria-label="Probability of each digit"></ol>
+    </div>
+    <figure class="preview">
+      <canvas id="preview" width="28" height="28" aria-label="The 28 by 28 image sent to the network"></canvas>
+      <figcaption>model input (28×28)</figcaption>
+    </figure>
+  </section>
+
   <footer>
-    A convolutional network trained on MNIST, 99.5% on the test set. The digit is
-    scaled into a 20×20 box and centred by its centre of mass first, exactly as the
-    training data was. <a href="https://github.com/perust/digit-recognizer">Source on GitHub</a>.
+    A convolutional network trained on MNIST, 99.5% on the test set. Digits are told apart by the
+    gaps between them, then each is scaled into a 20×20 box and centred by its centre of mass,
+    exactly as the training data was.
+    <a href="https://github.com/perust/digit-recognizer">Source on GitHub</a>.
   </footer>
 </main>
 <script type="module" src="./app.js"></script>
